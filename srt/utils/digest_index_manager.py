@@ -10,6 +10,7 @@ from sglang.srt.model_executor.forward_batch_info import compute_position
 from sglang.srt.utils.cache_blender_info import (
     BlendStyle,
     ContextBlendPool,
+    DEFAULT_DIGEST_RATIO,
     HackBlendKVPool,
 )
 
@@ -212,7 +213,10 @@ class DigestIndexManager:
             getattr(blend_info, "qcompute_end", None) or full_num_layers
         )
         num_layers = max(0, min(qcompute_end, full_num_layers))
-        digest_ratio = float(getattr(blend_info, "digest_ratio", 0.3) or 0.0)
+        raw_digest_ratio = getattr(blend_info, "digest_ratio", None)
+        digest_ratio = float(
+            DEFAULT_DIGEST_RATIO if raw_digest_ratio is None else raw_digest_ratio
+        )
         digest_method = cls.normalize_method(
             getattr(blend_info, "digest_index_method", "kvzip")
         )

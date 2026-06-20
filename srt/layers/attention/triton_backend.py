@@ -22,7 +22,6 @@ from sglang.srt.utils import (
 from sglang.srt.utils.cache_blender_info import BlendStyle
 from sglang.srt.layers.attention.triton_ops.prefill_attention import (
     context_attention_fwd,
-    ragged_attention_fwd,
     ragged_positions_attention_fwd,
 )
 
@@ -84,7 +83,6 @@ class TritonAttnBackend(AttentionBackend):
         )
         self.build_unified_kv_indices = torch.compiler.disable(build_unified_kv_indices)
         self.context_attention_fwd = torch.compiler.disable(context_attention_fwd)
-        self.ragged_attention_fwd = torch.compiler.disable(ragged_attention_fwd)
         self.ragged_positions_attention_fwd = torch.compiler.disable(
             ragged_positions_attention_fwd
         )
@@ -1017,9 +1015,15 @@ class TritonAttnBackend(AttentionBackend):
         if layer.sliding_window_size is not None and layer.sliding_window_size > -1:
             kv_indptr = self.forward_metadata.window_kv_indptr
             kv_indices = self.forward_metadata.window_kv_indices
+            num_kv_splits = (
+                self.forward_metadata.window_num_kv_splits
+                if self.forward_metadata.window_num_kv_splits is not None
+                else self.forward_metadata.num_kv_splits
+            )
         else:
             kv_indptr = self.forward_metadata.kv_indptr
             kv_indices = self.forward_metadata.kv_indices
+            num_kv_splits = self.forward_metadata.num_kv_splits
 
         self.decode_attention_fwd(
             q.view(-1, layer.tp_q_head_num, layer.qk_head_dim),
@@ -1030,7 +1034,7 @@ class TritonAttnBackend(AttentionBackend):
             kv_indices,
             self.forward_metadata.attn_logits,
             self.forward_metadata.attn_lse,
-            self.forward_metadata.num_kv_splits,
+            num_kv_splits,
             self.max_kv_splits,
             layer.scaling,
             logit_cap=logits_soft_cap,
@@ -1054,7 +1058,7 @@ class TritonAttnBackend(AttentionBackend):
         Blend modes:
         - KVCOMPUTE: Q and KV have the same batch structure, use context_attention_fwd
         - DO_BLEND: Q uses top_lens (sparse query), KV uses chunk_bounds,
-                    requires ragged_attention_fwd for right-aligned causal attention
+                    requires position-based ragged causal attention
         - QCOMPUTE: Fallback to regular forward_extend
         """
         blend_info = forward_batch.blend_info
@@ -1193,7 +1197,7 @@ class TritonAttnBackend(AttentionBackend):
                 is_causal=causal,
                 sm_scale=layer.scaling,
                 logit_cap=layer.logit_cap,
-                sliding_window_size=sliding_window,  # window_kv_offsets=window_offsets,
+                sliding_window_size=sliding_window,
             )
 
         return o

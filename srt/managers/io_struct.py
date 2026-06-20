@@ -28,6 +28,7 @@ from sglang.srt.managers.schedule_batch import BaseFinishReason
 from sglang.srt.multimodal.mm_utils import has_valid_data
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.utils import ImageData
+from sglang.srt.utils.cache_blender_info import DEFAULT_DIGEST_RATIO
 
 # Handle serialization of Image for pydantic
 if TYPE_CHECKING:
@@ -187,7 +188,7 @@ class GenerateReqInput(BaseReq):
     is_contextblend: Optional[bool] = False
     context_cache_source: Optional[str] = "query"
     context_n_sink: Optional[int] = None
-    digest_ratio: Optional[float] = 0.3
+    digest_ratio: Optional[float] = DEFAULT_DIGEST_RATIO
     digest_index_method: Optional[str] = "kvzip"
     critical_layers: Optional[List[int]] = None
 
@@ -690,7 +691,7 @@ class TokenizedGenerateReqInput(BaseReq):
     is_contextblend: Optional[bool] = False
     context_cache_source: Optional[str] = "query"
     context_n_sink: Optional[int] = None
-    digest_ratio: Optional[float] = 0.3
+    digest_ratio: Optional[float] = DEFAULT_DIGEST_RATIO
     digest_index_method: Optional[str] = "kvzip"
     critical_layers: Optional[List[int]] = None
 

@@ -1,6 +1,5 @@
 """QCFuse configuration for the SSD-backed blend runner."""
 
-DIGEST_INDEX_LABEL = "kvzip@10%"
 DIGEST_INDEX_METHOD = "kvzip"
 DIGEST_RATIO = 0.1
 DEFAULT_BLEND_RATIO = 0.5

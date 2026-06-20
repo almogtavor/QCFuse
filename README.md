@@ -1,13 +1,15 @@
-<div align="center">
-  <div style="display: inline-flex; align-items: stretch; gap: 0.75rem; max-width: 980px;">
-    <div style="display: flex; align-items: center; justify-content: center; flex: 0 0 68px;">
+<table align="center">
+  <tr>
+    <td align="center" valign="middle" width="84">
       <img src="md/kv_fusion_icon_editable.svg" alt="QCFuse icon" width="68">
-    </div>
-    <h1 style="margin: 0; text-align: left; line-height: 1.18;">
-      <span style="font-family: 'Avenir Next', 'Trebuchet MS', 'Segoe UI', sans-serif; font-size: 1.06em; font-weight: 650; letter-spacing: 0.01em;">QCFuse</span>: Query-Aware Cache Fusion via Compressed View for Efficient RAG Serving
-    </h1>
-  </div>
-</div>
+    </td>
+    <td valign="middle">
+      <h1>
+        <strong>QCFuse</strong>: Query-Aware Cache Fusion via Compressed View for Efficient RAG Serving
+      </h1>
+    </td>
+  </tr>
+</table>
 
 <br>
 
@@ -32,12 +34,10 @@ research artifact described in [arXiv:2606.05875](http://arxiv.org/abs/2606.0587
 - **Query-aware compressed view.** Cuts selector time and selection noise while
   preserving pipeline efficiency.
 - **Pipeline-aware SGLang system.** Adds SSD-backed PIC cache transfer and
-  Triton sparse reconstruction attention without extra masks.
+  Triton sparse reconstruction attention without materializing extra attention
+  masks.
 - **Matched-quality speedup.** Reaches **1.7x** average prefill speedup over
   full prefill and **1.5x** over ProphetKV.
-- **Strict-quality TTFT speedup.** Under **1%** relative quality drop, achieves
-  **1.9x** average TTFT speedup over full prefill.
-
 ## 📊 Results
 
 <p align="center">
@@ -71,8 +71,7 @@ QCFuse/
 
 The evaluation data is provided as `data/qcfuse_data.zip`. It contains six
 ready-to-run JSONL files derived from LongBench and RULER. Each dataset has
-200 samples, each sample is split into 20 chunks, and the average context
-length is about 10K tokens.
+200 samples.
 
 Extract the archive in the repository root:
 
@@ -144,9 +143,6 @@ python blend/sglang_blend_ssd.py \
   --cache_dir cache/qcfuse
 ```
 
-Supported `--baseline` values are `ours` and `fullcomp`. Supported `--dataset`
-values are `hotpotqa`, `2wikimqa`, `musique`, `ruler_mv`, `ruler_mq`, and
-`ruler_vt`.
 
 ## 📚 Citation
 

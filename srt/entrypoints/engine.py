@@ -81,6 +81,7 @@ from sglang.srt.utils import (
     set_prometheus_multiproc_dir,
     set_ulimit,
 )
+from sglang.srt.utils.cache_blender_info import DEFAULT_DIGEST_RATIO
 from sglang.srt.utils.torch_memory_saver_adapter import TorchMemorySaverAdapter
 from sglang.version import __version__
 
@@ -192,7 +193,7 @@ class Engine(EngineBase):
         is_contextblend: Optional[bool] = False,
         context_cache_source: Optional[str] = "query",
         context_n_sink: Optional[int] = None,
-        digest_ratio: Optional[float] = 0.3,
+        digest_ratio: Optional[float] = DEFAULT_DIGEST_RATIO,
         digest_index_method: Optional[str] = "kvzip",
         critical_layers: Optional[List[int]] = None,
         # SSD pipeline parameters

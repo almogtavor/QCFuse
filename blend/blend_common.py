@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import List, Tuple
 
-from transformers import AutoTokenizer, AutoConfig
+from transformers import AutoConfig
 import sglang as sgl
 from sglang.srt.utils.triton_attention_score import warmup_triton_kernels
 
@@ -17,7 +17,6 @@ from qcfuse_config import (
 )
 
 
-# ==================== Constants ====================
 DEFAULT_DATA_DIR = Path(__file__).parent
 # Frontend-only delimiter. The tokenizer path splits on this string before
 # tokenization, so it must not rely on whitespace to avoid token merges.
@@ -131,15 +130,13 @@ def set_prophetkv_layers(engine, model_name: str):
     _set_critical_layers(engine, model_name, list(range(num_layers)))
 
 
-# ==================== Base Engine ====================
-
 class BlendEngineBase:
     """Base class with shared blend engine functionality."""
 
     def __init__(self, model_path: str, baseline: str = "ours"):
         self.model_name = Path(model_path).name.lower()
         self.model_path = model_path
-        self.context_length = 12000
+        self.context_length = 16000
         self.attn_start = 0
         self.attn_end = -1
         self.critical_layers = None
@@ -158,9 +155,6 @@ class BlendEngineBase:
             attention_backend="triton",
         )
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_path, trust_remote_code=True
-        )
         self.set_baseline(baseline)
 
     def set_baseline(self, baseline: str):
@@ -225,18 +219,8 @@ class BlendEngineBase:
             return BLEND_SEP.join([prefix] + docs + [suffix]), query_sep
         return prefix + "".join(docs) + suffix, suffix
 
-    def check_prompt_length(
-        self, system_prompt: str, docs: List[str], q_prompt: List[str],
-        max_new_tokens: int,
-    ) -> Tuple[bool, int]:
-        """Check if prompt length exceeds context_length."""
-        prompt, _ = self._build_prompt(system_prompt, docs, q_prompt, use_sep=False)
-        token_count = len(self.tokenizer.encode(prompt))
-        max_allowed = self.context_length - max_new_tokens
-        return token_count <= max_allowed, token_count
-
     def _timed_generate(self, prompt: str, params: dict, **kwargs) -> dict:
-        """Run streaming generate and return {text, ttft, decode_time}."""
+        """Run streaming generate and return generated text plus TTFT."""
         start = time.time()
         ttft, text = None, ""
         for out in self.llm.generate(prompt, params, stream=True, **kwargs):
@@ -244,7 +228,7 @@ class BlendEngineBase:
                 ttft = time.time() - start
             text = out.get("text", "")
         ttft = ttft or (time.time() - start)
-        return {"text": text, "ttft": ttft, "decode_time": time.time() - start - ttft}
+        return {"text": text, "ttft": ttft}
 
     def warmup(self, num_warmup: int = 3):
         cfg = self._get_model_config()

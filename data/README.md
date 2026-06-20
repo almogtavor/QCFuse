@@ -12,8 +12,9 @@ The archive contains six ready-to-run JSONL files:
 - RULER: `ruler_mv.jsonl`, `ruler_mq.jsonl`, `ruler_vt.jsonl`
 
 The files are derived from the official LongBench and RULER datasets. Each
-dataset contains 200 samples. Each sample is split into 20 chunks, with an
-average context length of about 10K tokens.
+dataset contains 200 samples. RULER samples are split into 20 chunks, while
+LongBench samples are capped at 20 chunks and may contain fewer. The average
+context length is about 10K tokens.
 
 Extract the archive in the repository root:
 

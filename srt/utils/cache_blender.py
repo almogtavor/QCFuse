@@ -7,6 +7,7 @@ from sglang.srt.utils.cache_blender_info import (
     BlendStyle,
     SelectMode,
     ContextBlendPool,
+    DEFAULT_DIGEST_RATIO,
 )
 from sglang.srt.layers.rotary_embedding import RotaryEmbedding
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
@@ -217,6 +218,9 @@ class CacheBlender:
         # QCOMPUTE with contextblend.
         if blend_info.blend_style == BlendStyle.QCOMPUTE and blend_info.is_contextblend:
             is_online = KVSSDManager.is_online()
+            digest_ratio = getattr(blend_info, "digest_ratio", None)
+            if digest_ratio is None:
+                digest_ratio = DEFAULT_DIGEST_RATIO
             if is_online:
                 KVSSDManager.wait_layer_ready(layer_id)
                 with context_pool_lock:
@@ -226,7 +230,7 @@ class CacheBlender:
                 context_positions = ContextBlendPool.get_context_positions(layer_id)
                 if not context_positions:
                     context_positions = ContextBlendPool.build_context_positions(
-                        digest_ratio=getattr(blend_info, "digest_ratio", 0.3) or 0.3,
+                        digest_ratio=digest_ratio,
                     )
                     context_positions = ContextBlendPool.get_context_positions(layer_id)
                 old_k_ref, old_v_ref = HackBlendKVPool.get_kv(layer_id)
@@ -253,7 +257,7 @@ class CacheBlender:
 
             if not context_positions:
                 context_positions = ContextBlendPool.build_context_positions(
-                    digest_ratio=getattr(blend_info, "digest_ratio", 0.3) or 0.3,
+                    digest_ratio=digest_ratio,
                 )
                 context_positions = ContextBlendPool.get_context_positions(layer_id)
             if len(context_positions) != int(ctx_k.shape[0]):

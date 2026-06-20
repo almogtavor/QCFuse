@@ -10,17 +10,14 @@ from sglang.srt.utils.cache_blender_info import (
 
 
 class _ReqRegion(NamedTuple):
-    prefix_idx: int
-    quest_idx: int
+    req_start: int
     quest_start: int
     quest_end: int
     rag_start: int
-    rag_end: int
     rag_len: int
-    has_rag: bool
 
 
-def _compute_request_boundaries(info: BatchBlendInfo):
+def _compute_request_boundaries(info: BatchBlendInfo) -> Tuple[int, torch.Tensor]:
     chunk_loc = info.chunk_loc_list
     req_len_list = info.req_len_list
     device = chunk_loc.device
@@ -40,31 +37,22 @@ def _get_request_region(
     prefix_idx = req_start_chunk
     quest_idx = req_end_chunk - 1
 
+    req_start = chunk_loc[prefix_idx].item()
     quest_start = chunk_loc[quest_idx].item()
     quest_end = chunk_loc[quest_idx + 1].item()
 
-    has_rag = quest_idx > prefix_idx + 1
-    if has_rag:
+    if quest_idx > prefix_idx + 1:
         rag_start = chunk_loc[prefix_idx + 1].item()
-        rag_end = chunk_loc[quest_idx].item()
-        rag_len = rag_end - rag_start
+        rag_len = quest_start - rag_start
     else:
-        rag_start = rag_end = rag_len = 0
+        rag_start = quest_start
+        rag_len = 0
 
-    return _ReqRegion(
-        prefix_idx,
-        quest_idx,
-        quest_start,
-        quest_end,
-        rag_start,
-        rag_end,
-        rag_len,
-        has_rag and rag_len > 0,
-    )
+    return _ReqRegion(req_start, quest_start, quest_end, rag_start, rag_len)
 
 
 def _build_final_output(
-    final_indices_list: list, req_lens_list: list, device
+    final_indices_list: List[torch.Tensor], req_lens_list: List[int], device
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     return torch.cat(final_indices_list), torch.tensor(req_lens_list, device=device)
 
@@ -109,58 +97,21 @@ class IndiceSelector:
         return _build_final_output(final_indices_list, req_lens_list, device)
 
     @staticmethod
-    def _compute_attention_importance(
-        q: torch.Tensor,
-        *,
-        denominator_k: torch.Tensor,
-        target_start: int,
-        target_len: int,
-        q_start: int,
-        causal: bool = True,
-    ) -> torch.Tensor:
-        if not q.is_cuda:
-            raise RuntimeError("LayerFusion attention selection requires CUDA.")
-
-        from sglang.srt.utils.triton_attention_score import (
-            compute_att_full_softmax_importance,
-        )
-
-        return compute_att_full_softmax_importance(
-            q,
-            denominator_k,
-            target_start=int(target_start),
-            target_len=int(target_len),
-            q_start=int(q_start),
-            causal=causal,
-        )
-
-    @staticmethod
-    def _rotate_stacked_q(
+    def _rotate_stacked(
         rotary_emb,
         token_positions: torch.Tensor,
-        q: torch.Tensor,
+        tensor: torch.Tensor,
         num_layers: int,
         num_heads: int,
         head_dim: int,
+        *,
+        is_query: bool,
     ) -> torch.Tensor:
         pos = token_positions.repeat(num_layers)
-        q_flat = q.reshape(-1, num_heads * head_dim)
-        q_flat, _ = rotary_emb(pos, q_flat, q_flat)
-        return q_flat.reshape(num_layers, -1, num_heads, head_dim)
-
-    @staticmethod
-    def _rotate_stacked_k(
-        rotary_emb,
-        token_positions: torch.Tensor,
-        k: torch.Tensor,
-        num_layers: int,
-        num_kv_heads: int,
-        head_dim: int,
-    ) -> torch.Tensor:
-        pos = token_positions.repeat(num_layers)
-        k_flat = k.reshape(-1, num_kv_heads * head_dim)
-        _, k_flat = rotary_emb(pos, k_flat, k_flat)
-        return k_flat.reshape(num_layers, -1, num_kv_heads, head_dim)
+        flat = tensor.reshape(-1, num_heads * head_dim)
+        q_rot, k_rot = rotary_emb(pos, flat, flat)
+        rotated = q_rot if is_query else k_rot
+        return rotated.reshape(num_layers, -1, num_heads, head_dim)
 
     @staticmethod
     def _compute_layer_fusion(
@@ -180,11 +131,14 @@ class IndiceSelector:
         rotary_emb = getattr(info, "rotary_emb", None)
 
         num_reqs, req_boundaries = _compute_request_boundaries(info)
-        final_indices_list = []
-        req_lens_list = []
+        final_indices_list: List[torch.Tensor] = []
+        req_lens_list: List[int] = []
 
         old_k_stacked = torch.stack(old_k, dim=0)
         old_q_stacked = torch.stack(old_q, dim=0)
+        if not old_q_stacked.is_cuda:
+            raise RuntimeError("ATTN selection requires CUDA.")
+
         if getattr(info, "critical_layers", None):
             query_k_layers = HackBlendKVPool.get_query_k_layers(layer_ids)
         else:
@@ -192,6 +146,9 @@ class IndiceSelector:
                 info.attn_start, info.attn_end
             )
         query_k_stacked = torch.stack(query_k_layers, dim=0)
+        from sglang.srt.utils.triton_attention_score import (
+            compute_att_full_softmax_importance,
+        )
 
         q_lens = HackBlendKVPool.q_lens
         q_offsets = HackBlendKVPool.q_offsets
@@ -209,16 +166,15 @@ class IndiceSelector:
             k_abs_end = q_pos_end
             quest_indices = torch.arange(r.quest_start, r.quest_end, device=device)
 
-            if r.has_rag:
-                req_start = chunk_loc[r.prefix_idx].item()
-                prefix_len = r.quest_start - req_start
-                target_start = r.rag_start - req_start
+            if r.rag_len > 0:
+                prefix_len = r.quest_start - r.req_start
+                target_start = r.rag_start - r.req_start
                 full_q_start = prefix_len + q_offset
 
                 q_chunk = old_q_stacked[:, q_loc : q_loc + q_len].reshape(
                     num_layers, q_len, params.num_heads, params.head_dim
                 )
-                prefix_k = old_k_stacked[:, req_start : r.quest_start]
+                prefix_k = old_k_stacked[:, r.req_start : r.quest_start]
                 query_k = query_k_stacked[
                     :, query_k_loc : query_k_loc + query_k_len
                 ]
@@ -230,27 +186,28 @@ class IndiceSelector:
                 )
 
                 if rotary_emb is not None and positions is not None:
-                    q_chunk = IndiceSelector._rotate_stacked_q(
+                    q_chunk = IndiceSelector._rotate_stacked(
                         rotary_emb,
                         positions[q_pos_start:q_pos_end],
                         q_chunk,
                         num_layers,
                         params.num_heads,
                         params.head_dim,
+                        is_query=True,
                     )
-                    k_positions = positions[req_start:k_abs_end]
-                    k_full = IndiceSelector._rotate_stacked_k(
+                    k_full = IndiceSelector._rotate_stacked(
                         rotary_emb,
-                        k_positions,
+                        positions[r.req_start:k_abs_end],
                         k_full,
                         num_layers,
                         params.num_kv_heads,
                         params.head_dim,
+                        is_query=False,
                     )
 
-                importance = IndiceSelector._compute_attention_importance(
+                importance = compute_att_full_softmax_importance(
                     q_chunk,
-                    denominator_k=k_full,
+                    k_full,
                     target_start=target_start,
                     target_len=r.rag_len,
                     q_start=full_q_start,

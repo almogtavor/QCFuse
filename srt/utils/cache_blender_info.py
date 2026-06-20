@@ -1,9 +1,10 @@
-from typing import List, Tuple, Optional
 from enum import Enum
 import math
 import torch
 from dataclasses import dataclass
-import torch.nn.functional as F
+
+
+DEFAULT_DIGEST_RATIO = 0.1
 
 
 class BlendStyle(Enum):
@@ -183,8 +184,6 @@ class HackBlendKVPool:
     def get_query_k_layers(cls, layer_ids):
         return [cls.query_k_buffer[int(layer_id)] for layer_id in layer_ids]
 
-
-
 class ContextBlendPool:
     """Store digest-index metadata and runtime QCOMPUTE prefix KV."""
 
@@ -301,7 +300,7 @@ class ContextBlendPool:
     def _build_context_positions_for_layer(
         cls,
         layer_id: int = 0,
-        digest_ratio: float = 0.3,
+        digest_ratio: float = DEFAULT_DIGEST_RATIO,
     ):
         positions = []
         ranked_by_chunk = cls._ranked_indices_for_layer(layer_id)
@@ -340,7 +339,7 @@ class ContextBlendPool:
 
     @classmethod
     def build_context_positions(
-        cls, digest_ratio: float = 0.3
+        cls, digest_ratio: float = DEFAULT_DIGEST_RATIO
     ):
         num_layers = max(
             int(cls.num_index_layers or 0),
@@ -425,7 +424,7 @@ class BatchBlendInfo:
     context_cache_source: str = "query"
     context_n_sink: int = 4
     digest_index_method: str = "kvzip"
-    digest_ratio: float = 0.1
+    digest_ratio: float = DEFAULT_DIGEST_RATIO
     critical_layers: list = None
     critical_layers_set: set = None
     qcompute_end: int = None

@@ -184,7 +184,6 @@ class Qwen3Attention(nn.Module):
                     HackBlendKVPool.put_query_k(
                         k[blend_info.query_indices], self.attn.layer_id
                     )
-        if forward_batch.forward_mode.is_prefill() and blend_info is not None:
             q, k, v = CacheBlender.blend(
                 self.attn.layer_id, q, k, v, positions, forward_batch, self.rotary_emb
             )

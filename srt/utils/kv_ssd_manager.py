@@ -9,7 +9,11 @@ import json
 import threading
 import torch
 
-from sglang.srt.utils.cache_blender_info import HackBlendKVPool, ContextBlendPool
+from sglang.srt.utils.cache_blender_info import (
+    ContextBlendPool,
+    DEFAULT_DIGEST_RATIO,
+    HackBlendKVPool,
+)
 from sglang.srt.utils.digest_index_manager import DigestIndexManager
 
 # Global synchronization primitives
@@ -907,7 +911,12 @@ class KVSSDManager:
                 meta.get("context_positions_by_layer", [])
             )
         else:
-            ContextBlendPool.build_context_positions(digest_ratio=digest_ratio or 0.3)
+            fallback_digest_ratio = (
+                DEFAULT_DIGEST_RATIO if digest_ratio is None else digest_ratio
+            )
+            ContextBlendPool.build_context_positions(
+                digest_ratio=fallback_digest_ratio
+            )
         return meta
 
     @classmethod

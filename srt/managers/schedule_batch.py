@@ -86,6 +86,7 @@ from sglang.srt.utils.cache_blender_info import (
     AttParams,
     HackBlendKVPool,
     ContextBlendPool,
+    DEFAULT_DIGEST_RATIO,
 )
 from sglang.srt.utils.digest_index_manager import DigestIndexManager
 from sglang.srt.utils.kv_ssd_manager import KVSSDManager
@@ -463,7 +464,7 @@ class Req:
         is_contextblend: Optional[bool] = False,
         context_cache_source: Optional[str] = "query",
         context_n_sink: Optional[int] = None,
-        digest_ratio: Optional[float] = 0.3,
+        digest_ratio: Optional[float] = DEFAULT_DIGEST_RATIO,
         digest_index_method: Optional[str] = "kvzip",
         critical_layers: Optional[List[int]] = None,
         # SSD pipeline parameters
@@ -1378,7 +1379,9 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
                 reqs[0].context_n_sink if reqs[0].context_n_sink is not None else 4
             )
             self.blend_info_list.digest_ratio = (
-                reqs[0].digest_ratio if reqs[0].digest_ratio is not None else 0.3
+                reqs[0].digest_ratio
+                if reqs[0].digest_ratio is not None
+                else DEFAULT_DIGEST_RATIO
             )
             self.blend_info_list.digest_index_method = (
                 reqs[0].digest_index_method or "kvzip"

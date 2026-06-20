@@ -11,10 +11,7 @@ from typing import List, Dict, Tuple
 
 from rouge_score import rouge_scorer as _rouge_scorer
 
-# ==================== Dataset Configuration ====================
-
 RULER_DATASETS = ("ruler_vt", "ruler_mq", "ruler_mv")
-DATASETS = ("hotpotqa", "2wikimqa", "musique", *RULER_DATASETS)
 
 SYSTEM_PROMPT = (
     "You are a highly precise question-answering assistant.\n\n"
@@ -112,8 +109,6 @@ MAX_NEW_TOKENS_BY_DATASET = {
 DEFAULT_CHUNK_TOPK = 20
 
 
-# ==================== Data Loading ====================
-
 def load_dataset(dataset_path: str) -> List[Dict]:
     """Load a JSONL dataset file."""
     path = Path(dataset_path)
@@ -122,8 +117,6 @@ def load_dataset(dataset_path: str) -> List[Dict]:
     with open(path, "r", encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
-
-# ==================== Prompt Building ====================
 
 def normalize_question(question: str) -> str:
     """Lowercase first letter and ensure trailing '?'."""
@@ -155,8 +148,6 @@ def build_prompt_for_dataset(
     return docs, [QUERY_PREFIX, normalize_question(input_text)]
 
 
-# ==================== Scoring Functions ====================
-
 def scorer_f1(prediction: str, ground_truth: str) -> float:
     """F1 score from rouge_scorer."""
     if not prediction.strip() or not ground_truth.strip():
@@ -174,9 +165,6 @@ def scorer_string_match_all(prediction: str, ground_truths: List[str]) -> float:
     return hits / len(ground_truths)
 
 
-# ==================== Unified Evaluation ====================
-
-# dataset -> metric_type
 TASK_METRICS = {
     "hotpotqa": "f1",
     "2wikimqa": "f1",
@@ -211,8 +199,6 @@ def evaluate_sample(
             best = score
     return best
 
-
-# ==================== Simple Accessors ====================
 
 def get_system_prompt(_dataset_name: str) -> str:
     return RULER_SYS_INSTRUCT.get(_dataset_name, SYSTEM_PROMPT)
