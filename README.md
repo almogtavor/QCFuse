@@ -12,9 +12,7 @@
 </table>
 
 
-QCFuse is a **pipeline-constrained, query-aware KV cache fusion** system for
-efficient long-context RAG generation. This repository contains the QCFuse
-research artifact described in [arXiv:2606.05875](http://arxiv.org/abs/2606.05875).
+QCFuse is a **pipeline-constrained, query-aware KV cache fusion** system for efficient long-context RAG generation. This repository contains the QCFuse research artifact described in [arXiv:2606.05875](http://arxiv.org/abs/2606.05875).
 
 ## 🔥 News
 
