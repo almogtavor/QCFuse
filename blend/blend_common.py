@@ -52,12 +52,13 @@ def _critical_model_key(model_name: str) -> str:
         return "qwen3-8b"
     elif name_lower.startswith("qwen3-14b"):
         return "qwen3-14b"
+    elif name_lower.startswith("qwen3-32b"):
+        return "qwen3-32b"
     elif name_lower.startswith("llama"):
         return "llama3.1-8b"
     elif name_lower.startswith("mistral"):
         return "mistral-7b"
     raise ValueError(f"critical layers are not configured for model {model_name}")
-
 
 def get_critical_layers(
     model_name: str, num_layers: int, critical_layers: int = DEFAULT_CRITICAL_LAYERS

@@ -11,11 +11,6 @@
   </tr>
 </table>
 
-<br>
-
-<p align="center">
-  <a href="http://arxiv.org/abs/2606.05875"><img src="https://img.shields.io/badge/Paper-arXiv%3A2606.05875-b31b1b" alt="Paper"></a>
-</p>
 
 QCFuse is a **pipeline-constrained, query-aware KV cache fusion** system for
 efficient long-context RAG generation. This repository contains the QCFuse

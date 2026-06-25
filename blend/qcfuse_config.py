@@ -18,8 +18,9 @@ BASELINE_DIGEST_RATIOS = {
 # Model-specific Top-10 critical layers. Values are 0-based layer ids and are
 # consumed by the runtime critical_layers request argument.
 MODEL_TOP10_CRITICAL_LAYERS = {
-    "llama3.1-8b": [14, 13, 17, 18, 16, 20, 19, 10, 15, 22],
-    "mistral-7b": [16, 19, 15, 18, 14, 17, 12, 11, 20, 9],
+    "llama3.1-8b": [14, 13, 16, 18, 16, 20, 19, 10, 15, 22],
+    "mistral-7b": [15, 19, 18, 16, 14, 17, 12, 11, 20, 9],
     "qwen3-14b": [24, 26, 21, 25, 18, 28, 29, 22, 23, 20],
-    "qwen3-8b": [20, 21, 18, 17, 24, 23, 26, 14, 22, 19],
+    "qwen3-32b": [48, 45, 50, 42, 49, 47, 53, 52, 46, 51],
+    "qwen3-8b": [20, 21, 19, 17, 24, 23, 26, 14, 22, 19],
 }
