@@ -21,6 +21,11 @@ QCFuse is a **pipeline-constrained, query-aware KV cache fusion** system for
 efficient long-context RAG generation. This repository contains the QCFuse
 research artifact described in [arXiv:2606.05875](http://arxiv.org/abs/2606.05875).
 
+## 🔥 News
+
+- **2026.06.26** 🚀 QCFuse supports Qwen3-32B and evaluates Qwen3-8B/14B/32B reconstruction on LongBench under 5K context; see [results](md/qwen3_all_models_dataset_ttft_f1.png).
+- **2026.06.02** 🚀 QCFuse released code and datasets, with SGLang integration and Triton-accelerated sparse reconstruction attention.
+
 ## ✨ Highlights
 
 <p align="center">
@@ -38,6 +43,7 @@ research artifact described in [arXiv:2606.05875](http://arxiv.org/abs/2606.0587
   masks.
 - **Matched-quality speedup.** Reaches **1.7x** average prefill speedup over
   full prefill and **1.5x** over ProphetKV.
+
 ## 📊 Results
 
 <p align="center">
