@@ -78,7 +78,7 @@ class QCFuseProxyEngine(BlendEngineBase):
         self.digest_ratio = DIGEST_RATIO
         self.digest_index_method = "kvzip"
         self.context_n_sink = N_SINK
-        n_layers = self._get_model_config()["num_hidden_layers"]
+        n_layers = self._get_model_config()["num_layers"]
         self.critical_layers = get_critical_layers(
             self.model_name, n_layers, DEFAULT_CRITICAL_LAYERS
         )
