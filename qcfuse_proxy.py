@@ -125,12 +125,14 @@ class QCFuseProxyEngine(BlendEngineBase):
         return args
 
     def _drain(self, prompt, params, ssd, **kw):
-        print("[blend] drain start style=%s" % kw.get("blend_style"), flush=True)
-        for _ in self.llm.generate(prompt, params, stream=True,
-                                   ssd_cache_path_chunk=ssd["c"],
-                                   ssd_cache_path_query=ssd["q"], **kw):
-            pass
-        print("[blend] drain done style=%s" % kw.get("blend_style"), flush=True)
+        sys.stderr.write("[blend] drain start style=%s\n" % kw.get("blend_style"))
+        sys.stderr.flush()
+        out = self.llm.generate(prompt, params,
+                                ssd_cache_path_chunk=ssd["c"],
+                                ssd_cache_path_query=ssd["q"], **kw)
+        sys.stderr.write("[blend] drain done style=%s\n" % kw.get("blend_style"))
+        sys.stderr.flush()
+        return out
 
     def run(self, prompt, max_new_tokens, temperature):
         """The real 3-call blend sequence for one request. Returns (text, timings)."""
@@ -150,14 +152,17 @@ class QCFuseProxyEngine(BlendEngineBase):
                             ssd, **self._blend_args("QCOMPUTE", RATIO))
                 t["qcompute_ms"] = (time.perf_counter() - t0) * 1000
                 t0 = time.perf_counter()
-                # Phase-II b: DO_BLEND_FINISH (sparse recompute of P across layers + decode)
-                out_text = ""
-                for chunk in self.llm.generate(
-                        prompt, {"temperature": temperature, "max_new_tokens": max_new_tokens},
-                        stream=True, ssd_cache_path_chunk=ssd["c"],
-                        ssd_cache_path_query=ssd["q"],
-                        **self._blend_args("DO_BLEND_FINISH", RATIO)):
-                    out_text = chunk.get("text", out_text) if isinstance(chunk, dict) else out_text
+                # Phase-II b: DO_BLEND_FINISH (sparse recompute of P across layers + decode).
+                # non-stream to avoid the streaming generator; surface the real error.
+                print("[blend] drain start style=DO_BLEND_FINISH", flush=True)
+                out = self.llm.generate(
+                    prompt, {"temperature": temperature, "max_new_tokens": max_new_tokens},
+                    ssd_cache_path_chunk=ssd["c"], ssd_cache_path_query=ssd["q"],
+                    **self._blend_args("DO_BLEND_FINISH", RATIO))
+                if isinstance(out, list):
+                    out = out[0]
+                out_text = out.get("text", "") if isinstance(out, dict) else str(out)
+                print("[blend] drain done style=DO_BLEND_FINISH len=%d" % len(out_text), flush=True)
                 t["blend_finish_ms"] = (time.perf_counter() - t0) * 1000
                 return out_text, t
 
