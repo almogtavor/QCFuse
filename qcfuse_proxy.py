@@ -125,10 +125,12 @@ class QCFuseProxyEngine(BlendEngineBase):
         return args
 
     def _drain(self, prompt, params, ssd, **kw):
+        print("[blend] drain start style=%s" % kw.get("blend_style"), flush=True)
         for _ in self.llm.generate(prompt, params, stream=True,
                                    ssd_cache_path_chunk=ssd["c"],
                                    ssd_cache_path_query=ssd["q"], **kw):
             pass
+        print("[blend] drain done style=%s" % kw.get("blend_style"), flush=True)
 
     def run(self, prompt, max_new_tokens, temperature):
         """The real 3-call blend sequence for one request. Returns (text, timings)."""
@@ -199,18 +201,16 @@ def models():
 
 
 @app.post("/v1/chat/completions")
-async def chat(req: Request):
-    body = await req.json()
+def chat(body: dict):
+    # Sync def -> FastAPI runs it in its own threadpool (like the plain-sync runner),
+    # so sgl.Engine.generate never fights uvicorn's event loop.
     messages = body.get("messages", [])
     tools = body.get("tools")
     max_new = body.get("max_tokens") or 1024
     temperature = body.get("temperature", 0.7)
     prompt = ENGINE.build_prompt(messages, tools)
     try:
-        import asyncio
-        loop = asyncio.get_running_loop()
-        text, timings = await loop.run_in_executor(
-            _POOL, ENGINE.run, prompt, max_new, temperature)
+        text, timings = ENGINE.run(prompt, max_new, temperature)
     except Exception as e:
         import traceback
         return JSONResponse(status_code=500, content={"error": str(e), "tb": traceback.format_exc()[-800:]})
