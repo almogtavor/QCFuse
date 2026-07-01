@@ -1,0 +1,4 @@
+**/.clang-format
+**/.git
+sgl-kernel/**/*.clang-format
+srt/mem_cache/cpp_radix_tree/.clang-format

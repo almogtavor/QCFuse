@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -24,8 +25,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import uvicorn
 
-from blend.blend_common import BlendEngineBase, BLEND_SEP, get_critical_layers
-from blend.qcfuse_config import DEFAULT_CRITICAL_LAYERS
+# blend/ uses bare intra-package imports (from blend_common import …), so it must be
+# on sys.path — same as how blend/sglang_blend_ssd.py is run. QCFUSE_SRC=/opt/qcfuse-src.
+_SRC = os.environ.get("QCFUSE_SRC", "/opt/qcfuse-src")
+sys.path.insert(0, os.path.join(_SRC, "blend"))
+sys.path.insert(0, _SRC)
+
+from blend_common import BlendEngineBase, BLEND_SEP, get_critical_layers  # noqa: E402
+from qcfuse_config import DEFAULT_CRITICAL_LAYERS  # noqa: E402
 
 DIGEST_ZIP_PROMPT = "\n\nRepeat the previous context exactly."
 RATIO = float(os.environ.get("QCFUSE_RATIO", "0.2"))       # rho: recompute ratio
