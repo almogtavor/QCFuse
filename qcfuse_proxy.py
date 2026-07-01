@@ -107,7 +107,12 @@ class QCFuseProxyEngine(BlendEngineBase):
         turn_chunks = ["%s: %s" % (m.get("role"), _content(m)) for m in convo]
         prefix = sys_h + system + sys_e
         suffix = query + "\n\n## Answer\n" + asst_h
-        parts = [prefix, *turn_chunks, DIGEST_ZIP_PROMPT, suffix]
+        # Main prompt = [prefix] <sep> span1 <sep> span2 ... <sep> suffix — NO per-chunk
+        # DIGEST_ZIP here. Their _build_prompt(use_sep=True) has no zip; the zip belongs
+        # only in offline_prompt (SSD query-cache build, which the in-memory path skips).
+        # The stray zip added an extra chunk -> QCOMPUTE q_len boundary math went off ->
+        # IndiceSelector reshape crash ('[3,5,64,128]' invalid for size 61440).
+        parts = [prefix, *turn_chunks, suffix]
         prompt = BLEND_SEP.join(parts)
         # query_sep = the anchor-conditioned QCOMPUTE probe. Their code (blend_common.py:219,
         # utils.py:148) uses q_prompt = [QUERY_PREFIX, question] — the QUERY itself, NOT one
