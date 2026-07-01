@@ -119,6 +119,11 @@ class QCFuseProxyEngine(BlendEngineBase):
         return prompt, query_sep
 
     def _blend_args(self, blend_style, ratio, save_query_cache=False):
+        # Exactly mirrors their _blend_args (sglang_blend_ssd.py:218). The prior version
+        # hardcoded context_cache_source="query" + always added digest params for every
+        # non-KVCOMPUTE style; theirs conditions on save_query_cache, so DO_BLEND_FINISH
+        # (save_query_cache=False) only gets digest params when context_cache_source=="query".
+        # Getting this wrong drove DO_BLEND into a selector path that hangs the engine.
         args = {"blend_style": blend_style, "separator": BLEND_SEP,
                 "start": self.start, "ratio": ratio, "method": self.method}
         if self.method == "attn":
@@ -127,9 +132,15 @@ class QCFuseProxyEngine(BlendEngineBase):
         uses_cb = save_query_cache or (self.context_enhance and blend_style != "KVCOMPUTE")
         if uses_cb:
             args["is_contextblend"] = True
-            args["context_cache_source"] = "query"
-            args["digest_ratio"] = self.digest_ratio
-            args["digest_index_method"] = self.digest_index_method
+            if save_query_cache:
+                args["context_cache_source"] = "query"
+                args["digest_ratio"] = self.digest_ratio
+                args["digest_index_method"] = self.digest_index_method
+            else:
+                args["context_cache_source"] = self.context_cache_source
+            if not save_query_cache and self.context_cache_source == "query":
+                args["digest_ratio"] = self.digest_ratio
+                args["digest_index_method"] = self.digest_index_method
         if self.critical_layers:
             args["critical_layers"] = [int(x) for x in self.critical_layers]
         if save_query_cache or blend_style == "KVCOMPUTE":
@@ -140,7 +151,9 @@ class QCFuseProxyEngine(BlendEngineBase):
         # No ssd_cache_path_* -> QCFuse's IN-MEMORY blend path (in-process HackBlendKVPool /
         # ContextBlendPool). Avoids the SSD prefetch that futex-deadlocks DO_BLEND, and
         # writes nothing to disk.
-        sys.stderr.write("[blend] start %s\n" % style); sys.stderr.flush()
+        nsep = prompt.count(BLEND_SEP)
+        sys.stderr.write("[blend] start %s nsep=%d chunks=%d\n" % (style, nsep, nsep + 1))
+        sys.stderr.flush()
         out = self.llm.generate(prompt, params, **self._blend_args(style, ratio, **ba_kw))
         sys.stderr.write("[blend] done %s\n" % style); sys.stderr.flush()
         return out
