@@ -203,9 +203,11 @@ async def chat(req: Request):
     temperature = body.get("temperature", 0.7)
     prompt = ENGINE.build_prompt(messages, tools)
     try:
-        text, timings = ENGINE.run(prompt, max_new, temperature)
+        import asyncio
+        text, timings = await asyncio.to_thread(ENGINE.run, prompt, max_new, temperature)
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        import traceback
+        return JSONResponse(status_code=500, content={"error": str(e), "tb": traceback.format_exc()[-800:]})
     content, tool_calls = _parse_tool_calls(text)
     msg = {"role": "assistant", "content": content}
     if tool_calls:
