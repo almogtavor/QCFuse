@@ -114,13 +114,14 @@ class QCFuseProxyEngine(BlendEngineBase):
         # IndiceSelector reshape crash ('[3,5,64,128]' invalid for size 61440).
         parts = [prefix, *turn_chunks, suffix]
         prompt = BLEND_SEP.join(parts)
-        # query_sep = the anchor-conditioned QCOMPUTE probe. Their code (blend_common.py:219,
-        # utils.py:148) uses q_prompt = [QUERY_PREFIX, question] — the QUERY itself, NOT one
-        # piece per doc; QCFuse's per-chunk ANCHOR mechanism already conditions the probe on
-        # each span internally. SWE-bench has no natural query after a tool span, so inject a
-        # generic one; the anchor probe then attends from it into every span, as specified.
-        q_prompt = [self.SPAN_QUERY, query or self.SPAN_QUERY]
-        query_sep = BLEND_SEP.join(q_prompt)
+        # query_sep MUST have the SAME chunk layout as prompt: DO_BLEND derives per-chunk
+        # q_len from the q states QCOMPUTE populated, so a chunk-count mismatch makes the
+        # IndiceSelector reshape old_q with the wrong q_len (crash '[3,5,64,128]' vs 61440
+        # when prompt=5 chunks but query_sep=2). So mirror prompt: prefix <sep> generic
+        # per-span query x N <sep> real-query-suffix. This is the "generic query after
+        # every span" — one probe aligned to each span so the anchor attends into it.
+        q_chunks = [self.SPAN_QUERY] * len(turn_chunks)
+        query_sep = BLEND_SEP.join([prefix, *q_chunks, suffix])
         return prompt, query_sep
 
     def _blend_args(self, blend_style, ratio, save_query_cache=False):
