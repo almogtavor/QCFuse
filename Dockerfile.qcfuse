@@ -1,0 +1,16 @@
+# QCFuse SGLang image (almogtavor fork). Builds from THIS repo (the fork already IS
+# the SGLang 0.5.4 + QCFuse package overlay), on top of the official SGLang runtime.
+# Serves Qwen3-32B (SGLang 0.5.4 supports Qwen3 + native qwen25 tool-call parser;
+# it does NOT support google/gemma-4-31B-it). QCFUSE_ENABLED is the mode-3 toggle:
+# currently a documented placeholder until blend/ is wired into the serving path
+# (see qcfuse/QCFUSE_PORTING.md in the kvcache-bench repo).
+FROM lmsysorg/sglang:v0.5.4
+
+# Overlay the fork's python/sglang package (blend/ + srt/ + launch_server.py etc.)
+# onto the image's installed SGLang so the stock launch_server entrypoint resolves here.
+COPY . /opt/qcfuse-src
+ENV QCFUSE_SRC=/opt/qcfuse-src
+ENV QCFUSE_ENABLED=0
+
+# Default command inherited from the base image (python -m sglang.launch_server).
+# The modelservice chart passes --model-path / --tp / --tool-call-parser at deploy time.
