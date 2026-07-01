@@ -124,47 +124,34 @@ class QCFuseProxyEngine(BlendEngineBase):
             args["context_n_sink"] = self.context_n_sink
         return args
 
-    def _drain(self, prompt, params, ssd, **kw):
-        sys.stderr.write("[blend] drain start style=%s\n" % kw.get("blend_style"))
-        sys.stderr.flush()
-        out = self.llm.generate(prompt, params,
-                                ssd_cache_path_chunk=ssd["c"],
-                                ssd_cache_path_query=ssd["q"], **kw)
-        sys.stderr.write("[blend] drain done style=%s\n" % kw.get("blend_style"))
-        sys.stderr.flush()
+    def _gen(self, prompt, params, style, ratio, **ba_kw):
+        # No ssd_cache_path_* -> QCFuse's IN-MEMORY blend path (in-process HackBlendKVPool /
+        # ContextBlendPool). Avoids the SSD prefetch that futex-deadlocks DO_BLEND, and
+        # writes nothing to disk.
+        sys.stderr.write("[blend] start %s\n" % style); sys.stderr.flush()
+        out = self.llm.generate(prompt, params, **self._blend_args(style, ratio, **ba_kw))
+        sys.stderr.write("[blend] done %s\n" % style); sys.stderr.flush()
         return out
 
     def run(self, prompt, max_new_tokens, temperature):
-        """The real 3-call blend sequence for one request. Returns (text, timings)."""
+        """The real 3-call blend sequence for one request (in-memory). Returns (text, timings)."""
         with self._lock:  # process-global blend singletons -> serialize
-            with tempfile.TemporaryDirectory(prefix="qcfuse_") as d:
-                ssd = {"c": os.path.join(d, "chunk"), "q": os.path.join(d, "query")}
-                os.makedirs(ssd["c"], exist_ok=True); os.makedirs(ssd["q"], exist_ok=True)
-                t = {}
-                t0 = time.perf_counter()
-                # Phase-I: KVCOMPUTE (build per-chunk PIC cache + KVzip anchors)
-                self._drain(prompt, {"temperature": 0, "max_new_tokens": 1},
-                            ssd, **self._blend_args("KVCOMPUTE", 0.0, save_query_cache=True))
-                t["kvcompute_ms"] = (time.perf_counter() - t0) * 1000
-                t0 = time.perf_counter()
-                # Phase-II a: QCOMPUTE (query probe -> select P = topk(rho*N))
-                self._drain(prompt, {"temperature": 0, "max_new_tokens": 0},
-                            ssd, **self._blend_args("QCOMPUTE", RATIO))
-                t["qcompute_ms"] = (time.perf_counter() - t0) * 1000
-                t0 = time.perf_counter()
-                # Phase-II b: DO_BLEND_FINISH (sparse recompute of P across layers + decode).
-                # non-stream to avoid the streaming generator; surface the real error.
-                print("[blend] drain start style=DO_BLEND_FINISH", flush=True)
-                out = self.llm.generate(
-                    prompt, {"temperature": temperature, "max_new_tokens": max_new_tokens},
-                    ssd_cache_path_chunk=ssd["c"], ssd_cache_path_query=ssd["q"],
-                    **self._blend_args("DO_BLEND_FINISH", RATIO))
-                if isinstance(out, list):
-                    out = out[0]
-                out_text = out.get("text", "") if isinstance(out, dict) else str(out)
-                print("[blend] drain done style=DO_BLEND_FINISH len=%d" % len(out_text), flush=True)
-                t["blend_finish_ms"] = (time.perf_counter() - t0) * 1000
-                return out_text, t
+            t = {}
+            t0 = time.perf_counter()
+            self._gen(prompt, {"temperature": 0, "max_new_tokens": 1},
+                      "KVCOMPUTE", 0.0, save_query_cache=True)
+            t["kvcompute_ms"] = (time.perf_counter() - t0) * 1000
+            t0 = time.perf_counter()
+            self._gen(prompt, {"temperature": 0, "max_new_tokens": 0}, "QCOMPUTE", RATIO)
+            t["qcompute_ms"] = (time.perf_counter() - t0) * 1000
+            t0 = time.perf_counter()
+            out = self._gen(prompt, {"temperature": temperature, "max_new_tokens": max_new_tokens},
+                            "DO_BLEND_FINISH", RATIO)
+            if isinstance(out, list):
+                out = out[0]
+            out_text = out.get("text", "") if isinstance(out, dict) else str(out)
+            t["blend_finish_ms"] = (time.perf_counter() - t0) * 1000
+            return out_text, t
 
 
 ENGINE: QCFuseProxyEngine = None
