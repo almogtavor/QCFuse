@@ -44,12 +44,17 @@ jobs:
       - name: Add Dockerfile for upstream build
         if: matrix.repo != ''
         run: |
-          # upstream repo has no Dockerfile; drop in the same one used by the fork.
+          # upstream repo has no Dockerfile; drop in the same one used by the fork
+          # (including the OpenShift random-UID /root fix so tvm_ffi import succeeds).
           cat > Dockerfile.qcfuse <<'EOF'
           FROM lmsysorg/sglang:v0.5.4
           COPY . /opt/qcfuse-src
           ENV QCFUSE_SRC=/opt/qcfuse-src
           ENV QCFUSE_ENABLED=0
+          RUN chmod -R a+rX /root 2>/dev/null || true
+          ENV HOME=/tmp
+          ENV CARGO_HOME=/tmp/.cargo
+          ENV XDG_CACHE_HOME=/tmp/.cache
           EOF
 
       - name: Free disk space
