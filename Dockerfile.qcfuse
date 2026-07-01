@@ -1,25 +1,37 @@
-# QCFuse SGLang image (almogtavor fork). Builds from THIS repo (the fork already IS
-# the SGLang 0.5.4 + QCFuse package overlay), on top of the official SGLang runtime.
-# Serves Qwen3-32B (SGLang 0.5.4 supports Qwen3 + native qwen25 tool-call parser;
-# it does NOT support google/gemma-4-31B-it). QCFUSE_ENABLED is the mode-3 toggle:
-# currently a documented placeholder until blend/ is wired into the serving path
-# (see qcfuse/QCFUSE_PORTING.md in the kvcache-bench repo).
+# QCFuse SGLang image (almogtavor fork). The fork's top level IS the sglang package
+# contents (blend/ + srt/ + launch_server.py …). We OVERLAY it onto the base image's
+# installed sglang so the blend-patched srt/ (Triton importance kernels, CacheBlender,
+# DigestIndexManager) is what `import sglang.srt...` resolves to. Serves Qwen3-32B.
 FROM lmsysorg/sglang:v0.5.4
 
-# Overlay the fork's python/sglang package (blend/ + srt/ + launch_server.py etc.)
-# onto the image's installed SGLang so the stock launch_server entrypoint resolves here.
-COPY . /opt/qcfuse-src
-ENV QCFUSE_SRC=/opt/qcfuse-src
-ENV QCFUSE_ENABLED=0
+# The installed sglang package in the base image.
+ENV SGLANG_PKG=/sgl-workspace/sglang/python/sglang
 
-# OpenShift runs the pod as a random non-root UID (anyuid). flashinfer -> tvm_ffi
-# stats /root/.cargo/bin during import; with /root at mode 700 that random UID gets
-# PermissionError and the server crashes. Make /root traversable/readable and point
-# HOME/CARGO_HOME at writable locations so the import + any cache writes succeed.
+# Overlay the fork's package files ONTO the installed sglang (this is the real
+# "replace python/sglang with the QCFuse repo" step the README describes). Also keep
+# a copy at /opt/qcfuse-src for blend/ data + the proxy.
+COPY . /opt/qcfuse-src
+RUN cp -a /opt/qcfuse-src/srt/. "$SGLANG_PKG/srt/" \
+    && cp -a /opt/qcfuse-src/blend "$SGLANG_PKG/blend" 2>/dev/null || true \
+    && cp -a /opt/qcfuse-src/__init__.py /opt/qcfuse-src/version.py "$SGLANG_PKG/" 2>/dev/null || true \
+    && python3 -c "import sglang.srt.utils.triton_attention_score; print('blend overlay OK: triton kernels importable')"
+
+ENV QCFUSE_SRC=/opt/qcfuse-src
+ENV PYTHONPATH=/opt/qcfuse-src
+ENV QCFUSE_ENABLED=0
+# QCFuse recompute-ratio (rho, legolink-K analog) + KVzip anchor ratio. Sweepable.
+ENV QCFUSE_RATIO=0.2
+ENV QCFUSE_DIGEST_RATIO=0.1
+
+# The real-recompute OpenAI proxy (runs KVCOMPUTE->QCOMPUTE->DO_BLEND_FINISH per request).
+COPY qcfuse_proxy.py /opt/qcfuse-src/qcfuse_proxy.py
+RUN pip install --no-cache-dir fastapi uvicorn 2>/dev/null || true
+
+# OpenShift random-UID fix (flashinfer/tvm_ffi stats /root/.cargo during import).
 RUN chmod -R a+rX /root 2>/dev/null || true
 ENV HOME=/tmp
 ENV CARGO_HOME=/tmp/.cargo
 ENV XDG_CACHE_HOME=/tmp/.cache
 
-# Default command inherited from the base image (python -m sglang.launch_server).
-# The modelservice chart passes --model-path / --tp / --tool-call-parser at deploy time.
+# Default = stock sglang server (used by sglang-mw / -off baselines). The sglang-qcfuse
+# mode overrides the command to run qcfuse_proxy.py instead (see the helm values).
