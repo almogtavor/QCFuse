@@ -45,7 +45,33 @@ class QCFuseProxyEngine(BlendEngineBase):
     """BlendEngineBase wired for on-the-fly single-request serving (no offline dataset)."""
 
     def __init__(self, model_path: str):
-        super().__init__(model_path, baseline="ours")
+        # Replicate BlendEngineBase.__init__ but with env-tunable tp/mem_fraction/ctx —
+        # Qwen3-32B (~64GB bf16) OOMs on 1 GPU at the base's mem_fraction=0.6, so allow
+        # TP>1 and a bigger fraction. Blend REQUIRES: triton backend, radix+cudagraph off,
+        # chunked_prefill=-1 (kept fixed).
+        import sglang as sgl
+        self.model_name = os.path.basename(model_path.rstrip("/")).lower()
+        # model_name is used for critical-layer keying; /model-cache basename isn't "qwen3-32b".
+        self.model_name = os.environ.get("SGLANG_MODEL_KEY", self.model_name)
+        self.model_path = model_path
+        self.context_length = int(os.environ.get("QCFUSE_CTX", "16000"))
+        self.attn_start = 0
+        self.attn_end = -1
+        self.critical_layers = None
+        self._model_config = None
+        self.llm = sgl.Engine(
+            model_path=model_path,
+            mem_fraction_static=float(os.environ.get("QCFUSE_MEM_FRACTION", "0.85")),
+            context_length=self.context_length,
+            tp_size=int(os.environ.get("QCFUSE_TP", "2")),
+            disable_cuda_graph=True,
+            trust_remote_code=True,
+            disable_radix_cache=True,
+            chunked_prefill_size=-1,
+            dtype="bfloat16",
+            attention_backend="triton",
+        )
+        self.set_baseline("ours")
         # ContextBlend / query-source config (mirrors the runner's "ours" path).
         self.context_enhance = True
         self.context_cache_source = "query"
