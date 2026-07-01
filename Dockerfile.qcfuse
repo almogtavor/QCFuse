@@ -12,5 +12,14 @@ COPY . /opt/qcfuse-src
 ENV QCFUSE_SRC=/opt/qcfuse-src
 ENV QCFUSE_ENABLED=0
 
+# OpenShift runs the pod as a random non-root UID (anyuid). flashinfer -> tvm_ffi
+# stats /root/.cargo/bin during import; with /root at mode 700 that random UID gets
+# PermissionError and the server crashes. Make /root traversable/readable and point
+# HOME/CARGO_HOME at writable locations so the import + any cache writes succeed.
+RUN chmod -R a+rX /root 2>/dev/null || true
+ENV HOME=/tmp
+ENV CARGO_HOME=/tmp/.cargo
+ENV XDG_CACHE_HOME=/tmp/.cache
+
 # Default command inherited from the base image (python -m sglang.launch_server).
 # The modelservice chart passes --model-path / --tp / --tool-call-parser at deploy time.
