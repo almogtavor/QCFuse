@@ -162,6 +162,10 @@ class QCFuseProxyEngine(BlendEngineBase):
 
 ENGINE: QCFuseProxyEngine = None
 app = FastAPI(title="QCFuse proxy")
+# Dedicated single-thread pool: sgl.Engine shuts down asyncio's default executor at
+# init, so to_thread breaks; a single worker also enforces the single-flight blend.
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
+_POOL = ThreadPoolExecutor(max_workers=1)
 
 
 def _content(m):
@@ -204,7 +208,9 @@ async def chat(req: Request):
     prompt = ENGINE.build_prompt(messages, tools)
     try:
         import asyncio
-        text, timings = await asyncio.to_thread(ENGINE.run, prompt, max_new, temperature)
+        loop = asyncio.get_running_loop()
+        text, timings = await loop.run_in_executor(
+            _POOL, ENGINE.run, prompt, max_new, temperature)
     except Exception as e:
         import traceback
         return JSONResponse(status_code=500, content={"error": str(e), "tb": traceback.format_exc()[-800:]})
