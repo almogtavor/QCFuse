@@ -53,6 +53,10 @@ class QCFuseProxyEngine(BlendEngineBase):
         self.model_name = os.path.basename(model_path.rstrip("/")).lower()
         # model_name is used for critical-layer keying; /model-cache basename isn't "qwen3-32b".
         self.model_name = os.environ.get("SGLANG_MODEL_KEY", self.model_name)
+        # served_name is the OpenAI-API model id the harness expects (must match the
+        # request's model field exactly, e.g. "Qwen/Qwen3-32B"); distinct from the
+        # lowercase critical-layer key. Falls back to model_name if unset.
+        self.served_name = os.environ.get("SERVED_MODEL_NAME", self.model_name)
         self.model_path = model_path
         self.context_length = int(os.environ.get("QCFUSE_CTX", "16000"))
         self.attn_start = 0
@@ -222,7 +226,7 @@ def health():
 
 @app.get("/v1/models")
 def models():
-    return {"object": "list", "data": [{"id": ENGINE.model_name, "object": "model"}]}
+    return {"object": "list", "data": [{"id": ENGINE.served_name, "object": "model"}]}
 
 
 @app.post("/v1/chat/completions")
@@ -248,7 +252,7 @@ def chat(body: dict):
     return {
         "id": "chatcmpl-%s" % uuid.uuid4().hex[:12],
         "object": "chat.completion",
-        "model": ENGINE.model_name,
+        "model": ENGINE.served_name,
         "choices": [{"index": 0, "message": msg,
                      "finish_reason": "tool_calls" if tool_calls else "stop"}],
         "blend_check": {"method": "qcfuse", "rho": RATIO,
