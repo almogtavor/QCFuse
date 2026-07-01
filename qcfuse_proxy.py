@@ -84,12 +84,18 @@ class QCFuseProxyEngine(BlendEngineBase):
         )
         self._lock = threading.Lock()  # singletons -> single-flight
 
-    # -- prompt assembly: OpenAI messages -> blendsep-delimited RAG-style prompt --
+    # -- prompt assembly: OpenAI messages -> blendsep-delimited per-turn chunks --
+    # Returns (prompt, query_sep):
+    #   prompt    = prefix <sep> span1 <sep> span2 ... <sep> suffix   (KVCOMPUTE + DO_BLEND)
+    #   query_sep = generic_query <sep> real_query                   (QCOMPUTE anchor probe)
+    # QCFuse's QCOMPUTE probe attends from the query into every span (its per-chunk anchor
+    # mechanism handles the per-span conditioning internally). SWE-bench has no natural
+    # query after a tool result, so we inject a generic one so the probe still fires.
+    SPAN_QUERY = "this is the response for the tool call"
+
     def build_prompt(self, messages, tools):
         sys_h, sys_e, asst_h = self._get_template()
         system = "\n".join(m["content"] for m in messages if m.get("role") == "system")
-        # everything except the final user turn = the reusable "context" chunk;
-        # the final user turn = the query. Tool defs are appended to system.
         if tools:
             system += "\n\n# Tools\n" + json.dumps(tools)
         convo = [m for m in messages if m.get("role") != "system"]
@@ -97,14 +103,20 @@ class QCFuseProxyEngine(BlendEngineBase):
         if convo and convo[-1].get("role") == "user":
             query = convo[-1]["content"]
             convo = convo[:-1]
-        context = "\n".join(
-            "%s: %s" % (m.get("role"), _content(m)) for m in convo
-        )
+        # one chunk per remaining turn (tool results, assistant turns) = one span each
+        turn_chunks = ["%s: %s" % (m.get("role"), _content(m)) for m in convo]
         prefix = sys_h + system + sys_e
         suffix = query + "\n\n## Answer\n" + asst_h
-        # one context chunk (+ KVzip reconstruction probe), like _build_augmented_prompt
-        parts = [prefix, context, DIGEST_ZIP_PROMPT, suffix]
-        return BLEND_SEP.join(parts)
+        parts = [prefix, *turn_chunks, DIGEST_ZIP_PROMPT, suffix]
+        prompt = BLEND_SEP.join(parts)
+        # query_sep = the anchor-conditioned QCOMPUTE probe. Their code (blend_common.py:219,
+        # utils.py:148) uses q_prompt = [QUERY_PREFIX, question] — the QUERY itself, NOT one
+        # piece per doc; QCFuse's per-chunk ANCHOR mechanism already conditions the probe on
+        # each span internally. SWE-bench has no natural query after a tool span, so inject a
+        # generic one; the anchor probe then attends from it into every span, as specified.
+        q_prompt = [self.SPAN_QUERY, query or self.SPAN_QUERY]
+        query_sep = BLEND_SEP.join(q_prompt)
+        return prompt, query_sep
 
     def _blend_args(self, blend_style, ratio, save_query_cache=False):
         args = {"blend_style": blend_style, "separator": BLEND_SEP,
@@ -133,8 +145,10 @@ class QCFuseProxyEngine(BlendEngineBase):
         sys.stderr.write("[blend] done %s\n" % style); sys.stderr.flush()
         return out
 
-    def run(self, prompt, max_new_tokens, temperature):
-        """The real 3-call blend sequence for one request (in-memory). Returns (text, timings)."""
+    def run(self, prompt, query_sep, max_new_tokens, temperature):
+        """The real 3-call blend sequence for one request (in-memory). Returns (text, timings).
+        KVCOMPUTE + DO_BLEND run on `prompt` (prefix<sep>spans<sep>suffix); QCOMPUTE runs on
+        `query_sep` (per-span generic query), which is where QCFuse's anchor probe reads."""
         with self._lock:  # process-global blend singletons -> serialize
             t = {}
             t0 = time.perf_counter()
@@ -142,7 +156,7 @@ class QCFuseProxyEngine(BlendEngineBase):
                       "KVCOMPUTE", 0.0, save_query_cache=True)
             t["kvcompute_ms"] = (time.perf_counter() - t0) * 1000
             t0 = time.perf_counter()
-            self._gen(prompt, {"temperature": 0, "max_new_tokens": 0}, "QCOMPUTE", RATIO)
+            self._gen(query_sep, {"temperature": 0, "max_new_tokens": 0}, "QCOMPUTE", RATIO)
             t["qcompute_ms"] = (time.perf_counter() - t0) * 1000
             t0 = time.perf_counter()
             out = self._gen(prompt, {"temperature": temperature, "max_new_tokens": max_new_tokens},
@@ -200,9 +214,10 @@ def chat(body: dict):
     tools = body.get("tools")
     max_new = body.get("max_tokens") or 1024
     temperature = body.get("temperature", 0.7)
-    prompt = ENGINE.build_prompt(messages, tools)
+    prompt, query_sep = ENGINE.build_prompt(messages, tools)
+    n_spans = prompt.count(BLEND_SEP)  # separators = per-turn span boundaries
     try:
-        text, timings = ENGINE.run(prompt, max_new, temperature)
+        text, timings = ENGINE.run(prompt, query_sep, max_new, temperature)
     except Exception as e:
         import traceback
         return JSONResponse(status_code=500, content={"error": str(e), "tb": traceback.format_exc()[-800:]})
@@ -219,6 +234,8 @@ def chat(body: dict):
                      "finish_reason": "tool_calls" if tool_calls else "stop"}],
         "blend_check": {"method": "qcfuse", "rho": RATIO,
                         "critical_layers": ENGINE.critical_layers,
+                        "n_spans": n_spans,  # per-turn chunks computed independently in 1 prefill
+                        "single_pass": True,  # no separate warmup call; blend kernel is single-prefill
                         "digest_ratio": DIGEST_RATIO, **timings},
     }
 
