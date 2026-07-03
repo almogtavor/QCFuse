@@ -107,8 +107,22 @@ class IndiceSelector:
         *,
         is_query: bool,
     ) -> torch.Tensor:
-        pos = token_positions.repeat(num_layers)
         flat = tensor.reshape(-1, num_heads * head_dim)
+        # token_positions comes from positions[start:end] slices whose end can exceed
+        # len(positions) on long real prompts -> Python silently returns a SHORT slice ->
+        # pos ends up shorter than flat's rows -> RoPE reads out of bounds -> CUDA illegal
+        # memory access. Align token_positions to the tensor's real per-layer seq length
+        # (pad the tail with the last position, so those tokens just get a valid rotation).
+        seq = flat.shape[0] // num_layers
+        tp = token_positions
+        if tp.shape[0] != seq:
+            if tp.shape[0] < seq:
+                pad = tp[-1:].expand(seq - tp.shape[0]) if tp.shape[0] > 0 \
+                    else tp.new_zeros(seq)
+                tp = torch.cat([tp, pad])
+            else:
+                tp = tp[:seq]
+        pos = tp.repeat(num_layers)
         q_rot, k_rot = rotary_emb(pos, flat, flat)
         rotated = q_rot if is_query else k_rot
         return rotated.reshape(num_layers, -1, num_heads, head_dim)

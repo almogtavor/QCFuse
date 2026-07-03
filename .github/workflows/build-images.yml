@@ -1,0 +1,83 @@
+name: build-qcfuse-sglang-images
+
+# Builds the two SGLang+QCFuse images and pushes to ghcr.io/almogtavor.
+#   qcfuse-sglang     : this fork (QCFUSE_ENABLED scaffold) -> modes sglang-mw, sglang-qcfuse
+#   qcfuse-sglang-off : uYanJX/QCFuse upstream, built as-is -> mode sglang-qcfuse-off
+# Runs on push to main, or manually via the Actions tab.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile.qcfuse"
+      - ".github/workflows/build-images.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "image tag"
+        default: "latest"
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: almogtavor
+  TAG: ${{ github.event.inputs.tag || 'latest' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to ghcr.io with the built-in GITHUB_TOKEN
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: qcfuse-sglang          # this fork
+            repo: ""                       # empty = use the checked-out fork
+          - name: qcfuse-sglang-off       # pristine uYanJX upstream
+            repo: uYanJX/QCFuse
+    steps:
+      - name: Checkout (fork or upstream)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}   # empty -> current fork
+
+      - name: Add Dockerfile for upstream build
+        if: matrix.repo != ''
+        run: |
+          # upstream repo has no Dockerfile; drop in the same one used by the fork
+          # (including the OpenShift random-UID /root fix so tvm_ffi import succeeds).
+          cat > Dockerfile.qcfuse <<'EOF'
+          FROM lmsysorg/sglang:v0.5.4
+          COPY . /opt/qcfuse-src
+          ENV QCFUSE_SRC=/opt/qcfuse-src
+          ENV QCFUSE_ENABLED=0
+          RUN chmod -R a+rX /root 2>/dev/null || true
+          ENV HOME=/tmp
+          ENV CARGO_HOME=/tmp/.cargo
+          ENV XDG_CACHE_HOME=/tmp/.cache
+          EOF
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.qcfuse
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.name }}:${{ env.TAG }}
+          provenance: false

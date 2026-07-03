@@ -291,14 +291,22 @@ def compute_att_full_softmax_importance(
     Returns:
         importance: [target_len], query/head max followed by layer mean
     """
+    # q/k come from .reshape()+RoPE (_rotate_stacked), which can return non-contiguous
+    # views whose strides the Triton pointer math mishandles -> CUDA illegal memory
+    # access under real (long-context) loads. Force contiguous so stride(0..3) fully
+    # describes the layout the kernels index.
+    q = q.contiguous()
+    k = k.contiguous()
     num_layers, seq_q, heads_q, dim = q.shape
     _, seq_k, heads_k, _ = k.shape
 
     target_start = max(0, min(int(target_start), seq_k))
     target_len = max(0, min(int(target_len), seq_k - target_start))
     q_start = int(q_start)
-    if target_len == 0:
-        return torch.empty((0,), device=q.device, dtype=torch.float32)
+    # Degenerate query/context -> nothing to score; skip the kernels (empty grid dims
+    # or a zero-length dot are undefined in Triton and can fault).
+    if target_len == 0 or seq_q == 0 or seq_k == 0:
+        return torch.zeros((target_len,), device=q.device, dtype=torch.float32)
 
     sm_scale = 1.0 / math.sqrt(dim)
     block_m = _bounded_power_of_2(seq_q, 16, 64)
