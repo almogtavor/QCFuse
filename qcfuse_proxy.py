@@ -63,7 +63,11 @@ class QCFuseProxyEngine(BlendEngineBase):
         self.attn_end = -1
         self.critical_layers = None
         self._model_config = None
-        self.llm = sgl.Engine(
+        # QCFUSE_QUANTIZATION (e.g. "fp8") shrinks weights so the blend fits at tp=1:
+        # Qwen3-32B bf16 is ~64GB (80% of one 80GB GPU), leaving no room for the KV pool
+        # + QCFuse's extra blend buffers (query cache / context pool) -> OOM. fp8 halves
+        # weights to ~32GB. QCFuse's paper uses INT4 Qwen3-32B, so quantized blend is valid.
+        eng_kw = dict(
             model_path=model_path,
             mem_fraction_static=float(os.environ.get("QCFUSE_MEM_FRACTION", "0.85")),
             context_length=self.context_length,
@@ -75,6 +79,10 @@ class QCFuseProxyEngine(BlendEngineBase):
             dtype="bfloat16",
             attention_backend="triton",
         )
+        _quant = os.environ.get("QCFUSE_QUANTIZATION")
+        if _quant:
+            eng_kw["quantization"] = _quant
+        self.llm = sgl.Engine(**eng_kw)
         self.set_baseline("ours")
         # ContextBlend / query-source config (mirrors the runner's "ours" path).
         self.context_enhance = True
